@@ -17,7 +17,7 @@ def run_vllm(
     trust_remote_code: bool,
 ) -> float:
     # print(model)
-    llm = LLM(model, trust_remote_code=trust_remote_code, tensor_parallel_size=6,pipeline_parallel_size=2)
+    llm = LLM(model, trust_remote_code=trust_remote_code, tensor_parallel_size=6)
     tokenizer.pad_token = tokenizer.eos_token
     llm.set_tokenizer(tokenizer)
 
