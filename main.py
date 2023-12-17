@@ -6,23 +6,20 @@ import time
 from typing import List, Optional, Tuple
 import torch
 from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                          PreTrainedTokenizerBase)
+                          PreTrainedTokenizerBase,PreTrainedTokenizerFast)
 from tqdm import tqdm
+from vllm import LLM, SamplingParams
 
-
-def run_hf(
+def run_vllm(
     requests: List[Tuple[str, int, int]],
     model: str,
-    tokenizer: PreTrainedTokenizerBase,
+    tokenizer,
     trust_remote_code: bool,
 ) -> float:
-
-    llm = AutoModelForCausalLM.from_pretrained(
-        model, torch_dtype=torch.float16, trust_remote_code=trust_remote_code,cache_dir="./model")
-    if llm.config.model_type == "llama":
-        # To enable padding in the HF backend.
-        tokenizer.pad_token = tokenizer.eos_token
-    llm = llm.cuda()
+    # print(model)
+    llm = LLM(model, trust_remote_code=trust_remote_code, tensor_parallel_size=6)
+    tokenizer.pad_token = tokenizer.eos_token
+    llm.set_tokenizer(tokenizer)
 
     input_num_tokens = []
     output_num_tokens = []
@@ -32,16 +29,18 @@ def run_hf(
         # Generate the sequences.
         input_ids = tokenizer(prompt, return_tensors="pt",
                               padding=True).input_ids
-        llm_outputs = llm.generate(
-            input_ids=input_ids.cuda(),
-            do_sample=False,
-            num_return_sequences=1,
-            num_beams=1,
-            temperature=1.0,
-            top_p=1.0,
-            use_cache=True,
-            max_new_tokens=output_len,
+        sampling_params = SamplingParams(
+            n=1,
+            temperature=1.0,  # 控制生成文本的随机性，1.0 表示不随机
+            top_p=1.0,  # 核采样的累积概率，1.0 表示总是选择最可能的词
+            max_tokens=output_len  # 生成文本的最大长度
         )
+        llm_outputs = llm.generate(
+            prompts=prompt,
+            sampling_params=sampling_params,
+            use_tqdm=True
+        )
+
         # Include the decoding time.
         tokenizer.decode(llm_outputs[0], skip_special_tokens=True)
         input_num_tokens.append(len(input_ids[0]))
@@ -54,11 +53,11 @@ def run_hf(
 
 
 def main(args: argparse.Namespace):
-    print(args)
+    # print(args)
     random.seed(args.seed)
     # Sample the requests.
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.tokenizer, trust_remote_code=args.trust_remote_code,cache_dir="./model")
+    tokenizer = PreTrainedTokenizerFast.from_pretrained(
+        args.tokenizer, trust_remote_code=args.trust_remote_code)
     if args.dataset is None:
         # Synthesize a prompt with the given input length.
         prompt = "hi" * (args.input_len - 1)
@@ -72,7 +71,7 @@ def main(args: argparse.Namespace):
     if args.num_samples is not None:
         requests = requests[0:args.num_samples]
 
-    elapsed_time, input_num_tokens, output_num_tokens = run_hf(requests, args.model, tokenizer,  args.trust_remote_code)
+    elapsed_time, input_num_tokens, output_num_tokens = run_vllm(requests, args.model, tokenizer,  args.trust_remote_code)
     prompt_num_tokens = sum(prompt_len for prompt_len in input_num_tokens)
     total_num_tokens = sum(output_len for output_len in output_num_tokens)
     print(f"Throughput: {len(requests) / elapsed_time:.2f} requests/s \n"
@@ -84,8 +83,8 @@ def main(args: argparse.Namespace):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark the throughput.")
     parser.add_argument("--dataset", type=str, default=None, help="Path to the dataset.")
-    parser.add_argument("--model", type=str, default="meta-llama/Llama-2-70b-hf")
-    parser.add_argument("--tokenizer", type=str, default=None)
+    parser.add_argument("--model", type=str, default="./model/models--meta-llama--Llama-2-70b-hf/snapshots/model")
+    parser.add_argument("--tokenizer", type=str, default="./model/models--meta-llama--Llama-2-70b-hf/snapshots/model")
     parser.add_argument("--input-len", type=int, default=None, help="Input prompt length for each request")
     parser.add_argument("--output-len", type=int, default=None, help="Output length for each request")
     parser.add_argument("--num-samples", type=int, default=None, help="Number of first few samples used for inference test")
