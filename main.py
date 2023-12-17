@@ -8,7 +8,7 @@ import torch
 from transformers import (AutoModelForCausalLM, AutoTokenizer,
                           PreTrainedTokenizerBase,PreTrainedTokenizerFast)
 from tqdm import tqdm
-from vllm import LLM, SamplingParams
+from vllm_source import LLM, SamplingParams
 
 def run_vllm(
     requests: List[Tuple[str, int, int]],

@@ -162,5 +162,7 @@ cython_debug/
 *.pth
 models--meta-llama--Llama-2-70b-hf
 .locks
+.idea
+vllm
 llama 
 
